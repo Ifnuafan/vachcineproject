@@ -1,0 +1,218 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+/**
+ * ===== Enums =====
+ */
+enum UserRole {
+  ADMIN
+  STAFF
+}
+
+enum LotStatus {
+  USABLE
+  EXPIRED
+  NEAR_EXPIRE
+}
+
+/**
+ * ===== Models =====
+ */
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique(map: "User_email_key")
+  password  String
+  role      UserRole @default(STAFF)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+   inventories VaccineInventory[]
+
+  @@map("user") // ถ้าตารางจริงชื่อ user
+}
+
+model Vaccine {
+  id            Int      @id @default(autoincrement())
+  name          String   @db.VarChar(100)
+  type          String   @db.VarChar(50)
+  requiredDoses Int
+  usageType     String   @db.VarChar(20)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // back-relation ไปล็อต (ตั้งชื่อ relation ป้องกันสับสน)
+  lots VaccineLot[] @relation("VaccineToLot")
+  vaccinations VaccinationRecord[]
+
+  @@index([name])
+  @@index([type])
+  @@map("cine_table") // ใช้ชื่อตารางเดิม
+}
+
+model VaccineLot {
+  lotNo     String @id @db.VarChar(50)
+  vaccineId Int
+  inventories VaccineInventory[]
+
+  // relation ชี้กลับไป Vaccine (ต้องใช้ชื่อเดียวกันกับฝั่ง Vaccine)
+  vaccine Vaccine @relation("VaccineToLot", fields: [vaccineId], references: [id])
+
+  expirationDate DateTime
+  batchNumber    String?   @db.VarChar(50)
+  serialNumber   String?   @db.VarChar(50)
+  vaccinations VaccinationRecord[]
+  
+  status         LotStatus @default(USABLE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vaccineId])
+  @@index([expirationDate])
+  @@map("vaccine_lot")
+}
+
+/// =======================
+/// Warehouses (คลังวัคซีน)
+/// =======================
+enum WarehouseType {
+  MAIN   // คลังใหญ่
+  SUB    // คลังย่อย
+}
+
+model Warehouse {
+  id        Int            @id @default(autoincrement())
+  name      String         @db.VarChar(100)
+  type      WarehouseType  // MAIN | SUB
+  note      String?        @db.VarChar(255)
+
+  // relations
+  sourceOf  VaccineInventory[] @relation("SourceWarehouse")
+  targetOf  VaccineInventory[] @relation("TargetWarehouse")
+
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([name])               // กันชื่อซ้ำ (เช่น “คลังกลาง”)
+  @@index([type])
+}
+
+/// ==================================
+/// VaccineInventory (การเคลื่อนไหวสต็อก)
+/// ==================================
+enum InventoryAction {
+  RECEIVE   // รับเข้า (จากภายนอก)
+  TRANSFER  // โอนระหว่างคลัง
+  ISSUE     // เบิก/จ่ายออกเพื่อใช้งาน
+  DISPOSE   // ทำลาย/สูญเสีย
+}
+
+model VaccineInventory {
+  id                Int              @id @default(autoincrement())
+
+  // อ้างอิงผู้ทำรายการ
+  userId            Int
+  user              User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  // อ้างอิงล็อตที่เกี่ยวข้อง (ถ้ารับเข้า/โอน/เบิกต้องระบุล็อต)
+  lotNo             String
+  lot               VaccineLot       @relation(fields: [lotNo], references: [lotNo], onDelete: Restrict)
+
+  // ชนิดการเคลื่อนไหว
+  action            InventoryAction
+
+  // คลังต้นทาง/ปลายทาง (ตามกรณี)
+  sourceWarehouseId Int?             // ถ้า RECEIVE อาจเป็น null
+  sourceWarehouse   Warehouse?       @relation("SourceWarehouse", fields: [sourceWarehouseId], references: [id])
+  targetWarehouseId Int?             // ถ้า ISSUE/DISPOSE อาจเป็น null
+  targetWarehouse   Warehouse?       @relation("TargetWarehouse", fields: [targetWarehouseId], references: [id])
+
+  quantity          Int               // จำนวน (+/- ตีความตาม action)
+  transactionDate   DateTime          // วันที่ทำรายการ
+  remarks           String?           @db.VarChar(255)
+
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([lotNo])
+  @@index([userId])
+  @@index([action])
+  @@index([transactionDate])
+  @@index([sourceWarehouseId])
+  @@index([targetWarehouseId])
+}
+
+/// =====================
+/// Patients (ผู้รับวัคซีน)
+/// =====================
+enum Gender {
+  MALE     // ชาย
+  FEMALE   // หญิง
+  OTHER    // อื่นๆ
+}
+
+model Patient {
+  id         Int      @id @default(autoincrement()) // PatientID
+  fullName   String   @db.VarChar(100)              // ชื่อ-นามสกุล
+  birthDate  DateTime                               // วันเกิด
+  gender     Gender                                 // เพศ
+  cid        String   @db.VarChar(13) @unique       // บัตรประชาชน
+  allergies            String? @db.Text                    // ประวัติแพ้ยา/วัคซีน
+  underlyingConditions String? @db.Text                    // โรคประจำตัว  
+  address    String?  @db.Text                      // ที่อยู่
+  phone      String?  @db.VarChar(15)               // เบอร์โทร
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // จะเชื่อมกับ VaccinationRecord ภายหลัง
+   vaccinations VaccinationRecord[]
+
+  @@map("patients")
+}
+
+
+// ---- เพิ่ม enum สถานะการฉีด ----
+enum VaccinationStatus {
+  COMPLETED   // สำเร็จ
+  POSTPONED   // เลื่อน
+  CANCELED    // ยกเลิก
+}
+
+// ---- โมเดลประวัติการฉีดวัคซีน ----
+model VaccinationRecord {
+  id              Int               @id @default(autoincrement())
+
+  // ผู้รับวัคซีน
+  patientId       Int
+  patient         Patient           @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  // วัคซีน & ล็อต
+  vaccineId       Int
+  vaccine         Vaccine           @relation(fields: [vaccineId], references: [id], onDelete: Restrict)
+
+  lotNo           String
+  lot             VaccineLot        @relation(fields: [lotNo], references: [lotNo], onDelete: Restrict)
+
+  // รายละเอียด
+  vaccinationDate DateTime
+  doseNumber      Int?              // เข็มที่เท่าไหร่ (1,2,…)
+  injectionSite   String?           @db.VarChar(50)  // ตำแหน่งฉีด (L-Deltoid ฯลฯ)
+  status          VaccinationStatus @default(COMPLETED)
+  provider        String?           @db.VarChar(100) // ชื่อผู้ให้บริการ
+  remarks         String?           @db.Text
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([vaccinationDate, vaccineId, patientId, lotNo])
+  @@map("vaccination_records")
+}
+
+
