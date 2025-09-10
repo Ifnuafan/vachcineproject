@@ -19,6 +19,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, PieChart, Pie, Cell
 } from "recharts"
 
+
 function cn(...xs: (string | false | null | undefined)[]) {
   return xs.filter(Boolean).join(" ")
 }
@@ -210,11 +211,11 @@ export default function AdminDashboard() {
                 </span>
               </Button>
 
-              <Button variant="outline" size="sm" asChild className="border-slate-300">
+              {/* <Button variant="outline" size="sm" asChild className="border-slate-300">
                 <Link href="/auth/logout">
                   <LogOut className="h-5 w-5 mr-1 text-rose-500" /> ออกจากระบบ
                 </Link>
-              </Button>
+              </Button> */}
             </div>
           </div>
         </header>

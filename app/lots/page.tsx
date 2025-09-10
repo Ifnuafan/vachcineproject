@@ -2,11 +2,20 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import LotForm, { VaccineLot as LotFromForm } from '@/components/lots/LotForm'
-import { MagnifyingGlassIcon, PencilIcon, TrashIcon, XMarkIcon, ArrowDownOnSquareIcon } from '@heroicons/react/24/outline'
+import {
+  MagnifyingGlassIcon,
+  PencilIcon,
+  TrashIcon,
+  XMarkIcon,
+  ArrowDownOnSquareIcon,
+  CubeIcon,
+  PlusIcon,
+  BuildingStorefrontIcon, // ← เพิ่มบรรทัดนี้
+} from '@heroicons/react/24/outline'
 import { FileSpreadsheet } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
-// ✅ สำหรับปุ่ม "นำเข้าคลัง"
+// สำหรับปุ่ม "นำเข้าคลัง"
 import MovementModal, { ActionType } from '@/components/stock/MovementModal'
 
 type LotStatus = 'USABLE' | 'NEAR_EXPIRE' | 'EXPIRED' | 'DESTROYED'
@@ -40,10 +49,10 @@ const STATUS_THAI: Record<LotStatus, string> = {
 }
 
 const STATUS_COLOR: Record<LotStatus, string> = {
-  USABLE: 'bg-emerald-100 text-emerald-700',
-  NEAR_EXPIRE: 'bg-amber-100 text-amber-800',
-  EXPIRED: 'bg-rose-100 text-rose-700',
-  DESTROYED: 'bg-slate-100 text-slate-600',
+  USABLE: 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200',
+  NEAR_EXPIRE: 'bg-amber-100 text-amber-800 ring-1 ring-amber-200',
+  EXPIRED: 'bg-rose-100 text-rose-700 ring-1 ring-rose-200',
+  DESTROYED: 'bg-slate-100 text-slate-600 ring-1 ring-slate-200',
 }
 
 function formatDate(d?: string) {
@@ -64,6 +73,26 @@ function norm(s: unknown) {
     .trim()
 }
 
+/** ───────────── UI helpers (ม่วงพาสเทล + 彩虹) ───────────── */
+function IconBadge({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-white shadow-sm bg-gradient-to-tr from-sky-400 via-violet-400 to-pink-400 ring-1 ring-violet-200/60"
+      style={{ backdropFilter: 'saturate(140%) blur(0.5px)' }}
+    >
+      {children}
+    </span>
+  )
+}
+function RainbowChip({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-slate-700 bg-white shadow-sm ring-1 ring-slate-200">
+      <span className="h-2 w-2 rounded-full bg-gradient-to-r from-sky-400 via-fuchsia-400 to-emerald-400" />
+      {label}
+    </span>
+  )
+}
+
 function mapDtoToUI(x: VaccineLotDTO): VaccineLotUI {
   return {
     id: x.lotNo,
@@ -80,6 +109,7 @@ export default function VaccineLotsPage() {
   const [lots, setLots] = useState<VaccineLotUI[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<'ทั้งหมด' | LotStatus>('ทั้งหมด')
 
@@ -101,6 +131,9 @@ export default function VaccineLotsPage() {
   const [savingEdit, setSavingEdit] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState<string | null>(null)
 
+  // toggle form
+  const [showForm, setShowForm] = useState(true)
+
   const fetchLots = async () => {
     setLoading(true)
     setError('')
@@ -109,8 +142,7 @@ export default function VaccineLotsPage() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       const items: VaccineLotDTO[] = Array.isArray(data) ? data : (data?.items ?? [])
-      const ui = items.map(mapDtoToUI)
-      setLots(ui)
+      setLots(items.map(mapDtoToUI))
     } catch (e: any) {
       setError(e?.message || 'โหลดข้อมูลไม่สำเร็จ')
     } finally {
@@ -138,7 +170,9 @@ export default function VaccineLotsPage() {
       brand: lot.brand,
       expirationDate: lot.expirationDate,
       quantity: lot.quantity ?? 0,
-      status: (['USABLE', 'NEAR_EXPIRE', 'EXPIRED', 'DESTROYED'] as LotStatus[]).includes(lot.status as LotStatus)
+      status: (['USABLE', 'NEAR_EXPIRE', 'EXPIRED', 'DESTROYED'] as LotStatus[]).includes(
+        lot.status as LotStatus
+      )
         ? (lot.status as LotStatus)
         : 'USABLE',
     }
@@ -231,6 +265,7 @@ export default function VaccineLotsPage() {
   // Export Excel
   const handleExportExcel = () => {
     const data = filteredLots.map((lot) => ({
+      ลำดับ: lots.findIndex(l => l.id === lot.id) + 1,
       Lot: lot.lotNumber,
       ยี่ห้อ: lot.brand,
       หมดอายุ: formatDate(lot.expirationDate),
@@ -262,27 +297,61 @@ export default function VaccineLotsPage() {
 
       {/* header */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-          <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-sky-400 via-violet-400 to-pink-400 text-white shadow">
-            📦
-          </span>
-          จัดการล็อตวัคซีน
-        </h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+            <IconBadge><CubeIcon className="w-6 h-6" /></IconBadge>
+            จัดการล็อตวัคซีน
+          </h1>
+          <RainbowChip label={`ทั้งหมด ${filteredLots.length}/${lots.length} รายการ`} />
+        </div>
 
-        <button
-          onClick={handleExportExcel}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-white bg-gradient-to-r from-emerald-500 to-teal-500 shadow hover:opacity-90"
-          title="ส่งออกรายการที่กรองอยู่เป็นไฟล์ Excel"
-        >
-          <FileSpreadsheet className="w-5 h-5" />
-          ส่งออก Excel
-        </button>
+        <div className="flex gap-2">
+  <a
+    href="/stock"  // ← เปลี่ยนเส้นทางได้ตาม route ของคุณ
+    className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-white bg-gradient-to-r from-indigo-600 to-violet-600 shadow hover:opacity-95"
+    title="ไปหน้า Stock"
+  >
+    <BuildingStorefrontIcon className="w-5 h-5" />
+    ไปหน้า Stock
+  </a>
+
+    {/* <a
+    href="/dashboard"  // ← เปลี่ยนเส้นทางได้ตาม route ของคุณ
+    className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-white bg-gradient-to-r from-indigo-600 to-violet-600 shadow hover:opacity-95"
+    title="ไปหน้า Dashboard"
+  >
+    <BuildingStorefrontIcon className="w-5 h-5" />
+    ไปหน้า Dashboard
+  </a> */}
+
+  <button
+    onClick={() => setShowForm(s => !s)}
+    className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-white bg-gradient-to-r from-violet-600 via-fuchsia-600 to-sky-600 shadow hover:opacity-95"
+    title="แสดง/ซ่อนฟอร์มเพิ่มล็อต"
+  >
+    <PlusIcon className="w-5 h-5" />
+    {showForm ? 'ซ่อนฟอร์ม' : 'เพิ่มล็อตใหม่'}
+  </button>
+
+  <button
+    onClick={handleExportExcel}
+    className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-white bg-gradient-to-r from-emerald-500 to-teal-500 shadow hover:opacity-90"
+    title="ส่งออกรายการที่กรองอยู่เป็นไฟล์ Excel"
+  >
+    <FileSpreadsheet className="w-5 h-5" />
+    ส่งออก Excel
+  </button>
+</div>
+
       </div>
 
-      {/* ฟอร์มเพิ่มล็อต (อยู่บนสุด) */}
-      <div className="mb-6">
-        <LotForm onAdd={handleAddFromForm} onSaved={fetchLots} />
-      </div>
+      {/* ฟอร์มเพิ่มล็อต (บนสุด / พับได้) */}
+      {showForm && (
+        <div className="mb-6">
+          {/* ฟอร์มใช้โหมดหน้าเดียว */}
+          <LotForm mode="single" onAdd={handleAddFromForm} onSaved={fetchLots} />
+        </div>
+      )}
 
       {/* ค้นหา + filter */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
@@ -294,7 +363,7 @@ export default function VaccineLotsPage() {
               placeholder="พิมพ์ค้นหา: ยี่ห้อ / Lot / วันที่ (เช่น 01/09/2025) / สถานะ"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-10 pr-9 py-2 border rounded-md bg-white border-slate-200 text-slate-800"
+              className="pl-10 pr-9 py-2 border rounded-md bg-white border-slate-200 text-slate-800 shadow-sm"
             />
             {search && (
               <button
@@ -312,7 +381,7 @@ export default function VaccineLotsPage() {
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value as any)}
-            className="px-3 py-2 border rounded-md bg-white border-slate-200 text-slate-800"
+            className="px-3 py-2 border rounded-md bg-white border-slate-200 text-slate-800 shadow-sm"
           >
             <option value="ทั้งหมด">-- สถานะทั้งหมด --</option>
             <option value="USABLE">{STATUS_THAI.USABLE}</option>
@@ -341,36 +410,44 @@ export default function VaccineLotsPage() {
           </thead>
           <tbody className="[&>tr:nth-child(even)]:bg-slate-50">
             {filteredLots.map((lot, idx) => (
-              <tr key={lot.id} className="border-t border-slate-200/60 hover:bg-violet-50/40 transition">
-                <td className="px-4 py-2 text-center">{idx + 1}</td>
-                <td className="px-4 py-2">{lot.lotNumber}</td>
-                <td className="px-4 py-2">{lot.brand}</td>
-                <td className="px-4 py-2">{formatDate(lot.expirationDate)}</td>
+              <tr
+                key={lot.id}
+                className="border-t border-slate-200/60 hover:bg-gradient-to-r hover:from-violet-50/70 hover:to-sky-50/70 transition-colors"
+              >
+                <td className="px-4 py-2 text-center text-slate-700">{idx + 1}</td>
+                <td className="px-4 py-2 font-medium text-slate-800">{lot.lotNumber}</td>
+                <td className="px-4 py-2 text-slate-700">{lot.brand}</td>
+                <td className="px-4 py-2 text-slate-700">{formatDate(lot.expirationDate)}</td>
                 <td className="px-4 py-2">
-                  <span className={`px-2 py-1 text-xs rounded-full font-medium ${STATUS_COLOR[lot.status]}`}>
+                  <span className={`px-2 py-1 text-xs rounded-full font-semibold ${STATUS_COLOR[lot.status]}`}>
                     {STATUS_THAI[lot.status]}
                   </span>
                 </td>
                 <td className="px-4 py-2 text-center space-x-2">
                   <button
                     onClick={() => openReceiveForLot(lot.lotNumber)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-sm"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-sm shadow-sm"
                     title="นำวัคซีนล็อตนี้เข้าคลัง (RECEIVE)"
                   >
                     <ArrowDownOnSquareIcon className="w-4 h-4" />
                     นำเข้าคลัง
                   </button>
-
-                  <button onClick={() => openEdit(lot)} className="text-amber-600 hover:text-amber-700" title="แก้ไข">
-                    <PencilIcon className="w-5 h-5 inline" />
+                  <button
+                    onClick={() => openEdit(lot)}
+                    className="inline-flex items-center justify-center rounded-full p-1.5 text-amber-600 hover:bg-amber-50"
+                    title="แก้ไข"
+                  >
+                    <PencilIcon className="w-5 h-5" />
                   </button>
                   <button
                     onClick={() => removeLot(lot)}
-                    className={`hover:text-rose-600 ${deleteBusy === lot.lotNumber ? 'text-rose-300' : 'text-rose-500'}`}
+                    className={`inline-flex items-center justify-center rounded-full p-1.5 hover:bg-rose-50 ${
+                      deleteBusy === lot.lotNumber ? 'text-rose-300' : 'text-rose-600'
+                    }`}
                     title="ลบ"
                     disabled={deleteBusy === lot.lotNumber}
                   >
-                    <TrashIcon className="w-5 h-5 inline" />
+                    <TrashIcon className="w-5 h-5" />
                   </button>
                 </td>
               </tr>
@@ -389,7 +466,7 @@ export default function VaccineLotsPage() {
       {/* Edit Modal (inline) */}
       {editOpen && editLot && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white w-full max-w-xl rounded-xl shadow-xl p-6">
+          <div className="bg-white w-full max-w-xl rounded-xl shadow-xl p-6 ring-1 ring-slate-200">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-slate-800">
                 แก้ไขล็อต: {editLot.lotNumber}
@@ -415,7 +492,9 @@ export default function VaccineLotsPage() {
                 <input
                   type="number"
                   value={editForm.vaccineId}
-                  onChange={(e) => setEditForm((s) => ({ ...s, vaccineId: e.target.value ? Number(e.target.value) : '' }))}
+                  onChange={(e) =>
+                    setEditForm((s) => ({ ...s, vaccineId: e.target.value ? Number(e.target.value) : '' }))
+                  }
                   placeholder={String(editLot.vaccineId ?? '')}
                   className="w-full px-3 py-2 border rounded-md bg-white border-slate-200 text-slate-800"
                 />

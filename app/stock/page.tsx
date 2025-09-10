@@ -12,6 +12,7 @@ import {
   TrashIcon,
   ArrowDownOnSquareIcon,
   ArrowPathIcon,
+  Squares2X2Icon, // ← เพิ่มบรรทัดนี้
 } from '@heroicons/react/24/outline'
 import {
   SparklesIcon,
@@ -294,22 +295,33 @@ export default function VaccineStockPage() {
           <RainbowChip label={`รวมทั้งหมด ${total.toLocaleString()} โดส`} />
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={loadInventory}
-            className="flex items-center gap-2 bg-white border px-4 py-2 rounded-md shadow-sm hover:bg-slate-50 text-slate-700"
-            title="รีเฟรช"
-          >
-            <ArrowPathIcon className="w-5 h-5 text-sky-500" />
-            รีเฟรช
-          </button>
-          <button
-            onClick={handleExportExcel}
-            className="flex items-center gap-2 px-4 py-2 rounded-md text-white shadow-sm bg-gradient-to-r from-violet-500 via-fuchsia-500 to-sky-500 hover:opacity-95"
-          >
-            <ChartBarIcon className="w-5 h-5" />
-            ส่งออก Excel
-          </button>
-        </div>
+  <a
+    href="/dashboard" // ← เปลี่ยน path ถ้าหน้า dashboard ของคุณใช้ route อื่น เช่น "/"
+    className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-white shadow-sm bg-gradient-to-r from-indigo-600 to-violet-600 hover:opacity-95"
+    title="ไปหน้า Dashboard"
+  >
+    <Squares2X2Icon className="w-5 h-5" />
+    Dashboard
+  </a>
+
+  <button
+    onClick={loadInventory}
+    className="flex items-center gap-2 bg-white border px-4 py-2 rounded-md shadow-sm hover:bg-slate-50 text-slate-700"
+    title="รีเฟรช"
+  >
+    <ArrowPathIcon className="w-5 h-5 text-sky-500" />
+    รีเฟรช
+  </button>
+
+  <button
+    onClick={handleExportExcel}
+    className="flex items-center gap-2 px-4 py-2 rounded-md text-white shadow-sm bg-gradient-to-r from-violet-500 via-fuchsia-500 to-sky-500 hover:opacity-95"
+  >
+    <ChartBarIcon className="w-5 h-5" />
+    ส่งออก Excel
+  </button>
+</div>
+
       </div>
 
       {/* Action bar */}
