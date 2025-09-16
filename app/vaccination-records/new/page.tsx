@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   UserIcon, BeakerIcon, RectangleStackIcon, BuildingStorefrontIcon,
   CalendarIcon, HashtagIcon, MapPinIcon, CheckCircleIcon,
-  SparklesIcon
+  SparklesIcon, Cog8ToothIcon
 } from '@heroicons/react/24/outline'
 import { ShieldCheckIcon } from '@heroicons/react/24/solid'
 
@@ -73,8 +73,11 @@ export default function NewVaccinationPage() {
   // form state
   const [patientId, setPatientId] = useState<number | ''>('')
   const [vaccineId, setVaccineId] = useState<number | ''>('')
-  const [lotNo, setLotNo] = useState('')
   const [warehouseId, setWarehouseId] = useState<number | ''>('')
+
+  // (ขั้นสูง) เลือกล็อตเอง — ปกติ “ปิด”
+  const [advancedLot, setAdvancedLot] = useState(false)
+  const [lotNo, setLotNo] = useState('')
 
   const [vaccinationDate, setVaccinationDate] = useState<string>(() =>
     new Date().toISOString().slice(0,10)
@@ -92,7 +95,9 @@ export default function NewVaccinationPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
 
   const usableLots = useMemo(
-    () => lots.filter(l => l.status === 'USABLE' && (vaccineId ? l.vaccineId === Number(vaccineId) : true)),
+    () => lots
+      .filter(l => l.status === 'USABLE' && (vaccineId ? l.vaccineId === Number(vaccineId) : true))
+      .sort((a,b)=> new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime()),
     [lots, vaccineId]
   )
 
@@ -102,7 +107,7 @@ export default function NewVaccinationPage() {
       try {
         const [p, v, w] = await Promise.all([
           fetchJSON('/api/patients?limit=200'),
-          fetchJSON('/api/cines?limit=200'), // คง endpoint ตามโค้ดเดิมที่คุณใช้
+          fetchJSON('/api/cines?limit=200'), // endpoint ของวัคซีน
           fetchJSON('/api/warehouses?limit=200'),
         ])
         setPatients(p.items || [])
@@ -115,9 +120,10 @@ export default function NewVaccinationPage() {
     })()
   }, [])
 
-  // โหลด lots เมื่อเลือกวัคซีน (หรือดึง usable ทั้งหมดถ้ายังไม่เลือก)
+  // โหลด lots เมื่อเปิดโหมดขั้นสูง และเลือกวัคซีน
   useEffect(() => {
     (async () => {
+      if (!advancedLot) { setLots([]); setLotNo(''); return }
       try {
         const q = new URLSearchParams({
           limit: '200',
@@ -131,7 +137,7 @@ export default function NewVaccinationPage() {
         setLots([])
       }
     })()
-  }, [vaccineId])
+  }, [advancedLot, vaccineId])
 
   // คำนวณเข็มอัตโนมัติเมื่อเลือกผู้ป่วย + วัคซีน
   useEffect(() => {
@@ -151,27 +157,36 @@ export default function NewVaccinationPage() {
   }, [patientId, vaccineId])
 
   async function submit() {
-    if (!patientId || !vaccineId || !lotNo || !warehouseId || !vaccinationDate) {
-      alert('กรอกข้อมูลให้ครบ (ผู้ป่วย, วัคซีน, ล็อต, คลัง, วันที่ฉีด)')
+    // ไม่บังคับ lotNo อีกต่อไป เว้นแต่เปิดโหมดขั้นสูง
+    if (!patientId || !vaccineId || !warehouseId || !vaccinationDate) {
+      alert('กรอกข้อมูลให้ครบ (ผู้ป่วย, วัคซีน, คลัง, วันที่ฉีด)')
       return
     }
-    const body = {
+    if (advancedLot && !lotNo) {
+      alert('โหมดขั้นสูง: กรุณาเลือกรหัสล็อต')
+      return
+    }
+
+    const body: any = {
       patientId: Number(patientId),
       vaccineId: Number(vaccineId),
-      lotNo,
-      vaccinationDate,
+      // ถ้าไม่เปิด advancedLot จะไม่ส่ง lotNo → ให้ backend เลือกอัตโนมัติ (FEFO + เช็คสต็อก)
+      ...(advancedLot && lotNo ? { lotNo } : {}),
       warehouseId: Number(warehouseId),
+      vaccinationDate,
       quantity: Number(quantity) || 1,
       doseNumber: doseNumber || undefined,
       injectionSite: injectionSite || null,
       provider: provider || null,
       remarks: remarks || null,
     }
+
     const res = await fetch('/api/vaccination-records', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
+
     if (res.ok) {
       alert('บันทึกสำเร็จ')
       router.push('/vaccination-records')
@@ -197,7 +212,7 @@ export default function NewVaccinationPage() {
             <IconBadge size="lg"><CheckCircleIcon className="w-6 h-6" /></IconBadge>
             บันทึกการฉีดวัคซีน
           </h1>
-          <RainbowChip label="ฟอร์มบันทึก" />
+          <RainbowChip label="โหมดอัตโนมัติ (ไม่ต้องเลือกล็อต)" />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -235,26 +250,6 @@ export default function NewVaccinationPage() {
               {vaccines.length === 0 && <option disabled>(ไม่มีข้อมูล)</option>}
               {vaccines.map(v => (
                 <option key={v.id} value={v.id}>{v.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Lot */}
-          <div className="bg-white border border-slate-200 rounded-md px-3 py-2 shadow-sm">
-            <label className="flex items-center gap-2 mb-1 text-slate-600">
-              <RectangleStackIcon className="w-4 h-4" /> ล็อต (USABLE) *
-            </label>
-            <select
-              value={lotNo}
-              onChange={e => setLotNo(e.target.value)}
-              className="w-full bg-transparent focus:outline-none text-slate-800"
-            >
-              <option value="">-- เลือกล็อต --</option>
-              {usableLots.length === 0 && <option disabled>(ไม่มีข้อมูล)</option>}
-              {usableLots.map(l => (
-                <option key={l.lotNo} value={l.lotNo}>
-                  {l.lotNo} (หมดอายุ {new Date(l.expirationDate).toLocaleDateString()})
-                </option>
               ))}
             </select>
           </div>
@@ -337,6 +332,49 @@ export default function NewVaccinationPage() {
             />
           </div>
 
+          {/* (ขั้นสูง) เลือกล็อตเอง */}
+          <div className="md:col-span-2 bg-white border border-slate-200 rounded-md px-3 py-2 shadow-sm">
+            <label className="flex items-center gap-2 mb-2 text-slate-700 font-medium">
+              <Cog8ToothIcon className="w-4 h-4" />
+              โหมดขั้นสูง: เลือกล็อตเอง (ปกติไม่ต้องเปิด)
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="advancedLot"
+                type="checkbox"
+                checked={advancedLot}
+                onChange={e => setAdvancedLot(e.target.checked)}
+              />
+              <label htmlFor="advancedLot" className="text-sm text-slate-600">
+                เปิดเพื่อเลือกล็อตด้วยตัวเอง (ระบบจะไม่เลือกให้อัตโนมัติ)
+              </label>
+            </div>
+
+            {advancedLot && (
+              <div className="mt-3">
+                <label className="flex items-center gap-2 mb-1 text-slate-600">
+                  <RectangleStackIcon className="w-4 h-4" /> ล็อต (USABLE)
+                </label>
+                <select
+                  value={lotNo}
+                  onChange={e => setLotNo(e.target.value)}
+                  className="w-full bg-transparent focus:outline-none text-slate-800"
+                >
+                  <option value="">-- เลือกล็อต --</option>
+                  {usableLots.length === 0 && <option disabled>(ไม่มีข้อมูลล็อตที่ใช้งานได้)</option>}
+                  {usableLots.map(l => (
+                    <option key={l.lotNo} value={l.lotNo}>
+                      {l.lotNo} (หมดอายุ {new Date(l.expirationDate).toLocaleDateString()})
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-slate-500">
+                  * ถ้าไม่เปิดโหมดขั้นสูง ระบบจะเลือกล็อตให้เองโดยอัตโนมัติ (ใกล้หมดอายุที่สุดที่สต็อกพอ)
+                </p>
+              </div>
+            )}
+          </div>
+
           {/* Remarks */}
           <div className="md:col-span-2 bg-white border border-slate-200 rounded-md px-3 py-2 shadow-sm">
             <label className="mb-1 text-slate-600">หมายเหตุ</label>
@@ -367,7 +405,8 @@ export default function NewVaccinationPage() {
 
         <div className="mt-4 flex items-center gap-2 text-xs text-slate-500">
           <SparklesIcon className="w-4 h-4 text-violet-500" />
-          ระบบจะคำนวณ “เข็มที่” ให้อัตโนมัติเมื่อเลือกทั้งผู้ป่วยและวัคซีนแล้ว
+          ระบบจะคำนวณ “เข็มที่” ให้อัตโนมัติเมื่อเลือกทั้งผู้ป่วยและวัคซีนแล้ว •
+          หากไม่เปิดโหมดขั้นสูง ระบบจะเลือกล็อตให้อัตโนมัติ (FEFO) และหักสต็อกทันที
         </div>
       </div>
     </div>

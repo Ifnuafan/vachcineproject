@@ -9,24 +9,27 @@ type LotStatus = 'USABLE' | 'NEAR_EXPIRE' | 'EXPIRED'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
+const NEAR_EXPIRE_DAYS = 30 // ให้ตรงกับฝั่ง UI/หน้าตาราง
+
 function parseDateOnly(isoDate: string): Date {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate))
   if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
   return new Date(isoDate)
 }
+
 function calcStatus(expirationDate: Date): LotStatus {
   const today = new Date()
   const d0 = new Date(today.getFullYear(), today.getMonth(), today.getDate())
   const d1 = new Date(expirationDate.getFullYear(), expirationDate.getMonth(), expirationDate.getDate())
   const diffDays = Math.ceil((d1.getTime() - d0.getTime()) / 86400000)
   if (diffDays <= 0) return 'EXPIRED'
-  if (diffDays <= 14) return 'NEAR_EXPIRE'
+  if (diffDays <= NEAR_EXPIRE_DAYS) return 'NEAR_EXPIRE'
   return 'USABLE'
 }
 
 // GET /api/lots/[lotNo]
-export async function GET(_req: Request, ctx: { params: Promise<{ lotNo: string }> }) {
-  const { lotNo: raw } = await ctx.params
+export async function GET(_req: Request, ctx: { params: { lotNo: string } }) {
+  const { lotNo: raw } = ctx.params
   const lotNo = decodeURIComponent(raw)
 
   const item = await prisma.vaccineLot.findUnique({
@@ -34,17 +37,18 @@ export async function GET(_req: Request, ctx: { params: Promise<{ lotNo: string 
     include: { vaccine: true },
   })
   if (!item) return NextResponse.json({ message: 'ไม่พบล็อต' }, { status: 404 })
+
   return NextResponse.json(item, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 // PUT /api/lots/[lotNo]
-export async function PUT(req: Request, ctx: { params: Promise<{ lotNo: string }> }) {
+export async function PUT(req: Request, ctx: { params: { lotNo: string } }) {
   const session = await getServerSession(authOptions)
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
   }
 
-  const { lotNo: raw } = await ctx.params
+  const { lotNo: raw } = ctx.params
   const lotNo = decodeURIComponent(raw)
 
   const body = await req.json().catch(() => ({}))
@@ -57,7 +61,7 @@ export async function PUT(req: Request, ctx: { params: Promise<{ lotNo: string }
   if (expirationDate) {
     expDate = parseDateOnly(String(expirationDate))
     if (isNaN(expDate.getTime())) {
-      return NextResponse.json({ message: 'รูปแบบวันหมดอายุไม่ถูกต้อง' }, { status: 400 })
+      return NextResponse.json({ message: 'รูปแบบวันหมดอายุไม่ถูกต้อง (YYYY-MM-DD)' }, { status: 400 })
     }
   }
 
@@ -73,7 +77,7 @@ export async function PUT(req: Request, ctx: { params: Promise<{ lotNo: string }
       expirationDate: expDate ?? undefined,
       batchNumber: batchNumber === undefined ? undefined : (batchNumber || null),
       serialNumber: serialNumber === undefined ? undefined : (serialNumber || null),
-      status: expDate ? calcStatus(expDate) : undefined,
+      status: expDate ? calcStatus(expDate) : undefined, // คำนวณใหม่เมื่อเปลี่ยนวันหมดอายุ
     },
     include: { vaccine: true },
   })
@@ -82,19 +86,32 @@ export async function PUT(req: Request, ctx: { params: Promise<{ lotNo: string }
 }
 
 // DELETE /api/lots/[lotNo]
-export async function DELETE(_req: Request, ctx: { params: Promise<{ lotNo: string }> }) {
+export async function DELETE(_req: Request, ctx: { params: { lotNo: string } }) {
   const session = await getServerSession(authOptions)
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
   }
 
-  const { lotNo: raw } = await ctx.params
+  const { lotNo: raw } = ctx.params
   const lotNo = decodeURIComponent(raw)
+
+  // กันลบถ้าใช้งานแล้ว
+  const [recCnt, invCnt] = await Promise.all([
+    prisma.vaccinationRecord.count({ where: { lotNo } }),
+    prisma.vaccineInventory.count({ where: { lotNo } }),
+  ])
+
+  if (recCnt > 0 || invCnt > 0) {
+    return NextResponse.json(
+      { message: `ลบไม่ได้: ล็อตถูกใช้งานแล้ว (records: ${recCnt}, inventories: ${invCnt})` },
+      { status: 409 }
+    )
+  }
 
   try {
     await prisma.vaccineLot.delete({ where: { lotNo } })
     return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } })
-  } catch {
+  } catch (e) {
     return NextResponse.json({ message: 'ลบไม่สำเร็จ' }, { status: 400 })
   }
 }

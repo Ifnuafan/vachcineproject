@@ -28,7 +28,7 @@ type Patient = {
   underlyingConditions?: string | null
 }
 
-/* ========= UI helpers (สีม่วง+彩虹) ========= */
+/* ========= UI helpers (สีม่วง+) ========= */
 function IconBadge({
   children,
   ring = true,
