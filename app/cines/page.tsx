@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import classNames from 'classnames'
 import {
   PlusCircleIcon,
@@ -15,35 +14,31 @@ import {
 } from '@heroicons/react/24/outline'
 import {
   BeakerIcon,
-  CubeIcon,
   SparklesIcon,
-  ArrowUpRightIcon,
   ShieldCheckIcon,
+  ArrowUpRightIcon,
 } from '@heroicons/react/24/solid'
 
-/** ───────────── UI helpers (สีม่วง+彩虹) ───────────── */
+/* ============ Small UI helpers ============ */
 function IconBadge({
   children,
   ring = true,
-  size = 'md',
+  size = 'md', // ✅ default เป็นค่าเดียว
 }: {
   children: React.ReactNode
   ring?: boolean
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'md' | 'lg' // ✅ union type
 }) {
   const sz =
-    size === 'sm'
-      ? 'h-8 w-8 text-[14px]'
-      : size === 'lg'
-      ? 'h-12 w-12 text-[18px]'
-      : 'h-10 w-10 text-[16px]'
+    size === 'sm' ? 'h-8 w-8 text-[14px]' :
+    size === 'lg' ? 'h-12 w-12 text-[18px]' :
+    'h-10 w-10 text-[16px]'
   return (
     <span
       className={classNames(
         'inline-flex items-center justify-center rounded-xl text-white shadow-sm',
-        // ไล่สีฟ้า→ม่วง→ชมพู (พาสเทล)
         'bg-gradient-to-tr from-sky-400 via-violet-400 to-pink-400',
-        ring && 'ring-1 ring-violet-200/60'
+        ring && 'ring-1 ring-violet-200/60',
       )}
       style={{ backdropFilter: 'saturate(140%) blur(0.5px)' }}
     >
@@ -61,7 +56,7 @@ function RainbowChip({ label }: { label: string }) {
   )
 }
 
-/** ───────────── Types ───────────── */
+/* ============ Types ============ */
 type Cine = {
   id: number
   name: string
@@ -72,6 +67,7 @@ type Cine = {
   updatedAt: string
 }
 
+/* ============ Page ============ */
 export default function CinesPage() {
   const { data: session } = useSession()
   const role = session?.user?.role as string | undefined
@@ -85,8 +81,8 @@ export default function CinesPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>('')
 
-  const [isFormOpen, setIsFormOpen] = useState(false)
-  const [editing, setEditing] = useState<Cine | null>(null)
+  // track row-deleting state
+  const [deletingId, setDeletingId] = useState<number | null>(null)
 
   const fetchList = async () => {
     setLoading(true)
@@ -106,51 +102,47 @@ export default function CinesPage() {
     }
   }
 
-  useEffect(() => {
-    fetchList()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page])
+  useEffect(() => { fetchList() }, [page])
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit])
 
-  const openCreate = () => {
-    setEditing(null)
-    setIsFormOpen(true)
-  }
+  const [isFormOpen, setIsFormOpen] = useState(false)
+  const [editing, setEditing] = useState<Cine | null>(null)
 
-  const openEdit = (it: Cine) => {
-    setEditing(it)
-    setIsFormOpen(true)
-  }
+  const openCreate = () => { setIsFormOpen(true); setEditing(null) }
+  const openEdit = (it: Cine) => { setIsFormOpen(true); setEditing(it) }
 
-  const onSaved = () => {
-    // ใช้กรณีแก้ไขอย่างเดียว (ตอนสร้างใหม่จะ redirect ในฟอร์มอยู่แล้ว)
-    setIsFormOpen(false)
-    fetchList()
-  }
-
+  // ✅ ลบรายการวัคซีน
   const onDelete = async (id: number) => {
     if (!canEdit) return
-    if (!confirm('ลบรายการนี้หรือไม่?')) return
-    setLoading(true)
+    if (!confirm('ลบรายการวัคซีนนี้หรือไม่?')) return
+    setDeletingId(id)
+    setError('')
     try {
       const res = await fetch(`/api/cines/${id}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error(await res.text())
-      await fetchList()
+      if (!res.ok) {
+        const msg = await res.text().catch(() => '')
+        throw new Error(msg || 'ลบไม่สำเร็จ')
+      }
+      // ลบออกจากรายการทันที + อัปเดตยอดรวม (เร็วขึ้น)
+      setItems(prev => prev.filter(it => it.id !== id))
+      setTotal(prev => Math.max(0, prev - 1))
+      // หรือจะเรียก fetchList() เพื่อ sync กับ server ก็ได้
+      // await fetchList()
     } catch (e: any) {
-      alert(e?.message || 'ลบไม่สำเร็จ')
+      setError(e?.message || 'ลบไม่สำเร็จ')
+      // เผื่อรายการไม่ตรงกับ server ก็รีเฟรชหนึ่งรอบ
+      await fetchList()
     } finally {
-      setLoading(false)
+      setDeletingId(null)
     }
   }
 
   return (
     <div className="relative min-h-screen px-4 py-8">
-      {/* Pastel background with extra violet */}
+      {/* background */}
       <div className="pointer-events-none absolute inset-0 -z-10">
         <div className="absolute inset-0 bg-gradient-to-tr from-violet-50 via-sky-50 to-white" />
-        <div className="absolute -top-28 -right-28 w-96 h-96 rounded-full bg-fuchsia-200/30 blur-3xl" />
-        <div className="absolute -bottom-28 -left-28 w-[28rem] h-[28rem] rounded-full bg-sky-200/30 blur-3xl" />
       </div>
 
       {/* Header */}
@@ -163,30 +155,21 @@ export default function CinesPage() {
           <RainbowChip label={`ทั้งหมด ${total.toLocaleString()} รายการ`} />
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={fetchList}
-            className="flex items-center gap-2 bg-white border px-4 py-2 rounded-md shadow-sm hover:bg-slate-50 text-slate-700"
-            title="รีเฟรช"
-          >
-            <ArrowPathIcon className="w-5 h-5 text-sky-500" />
-            รีเฟรช
+          <button onClick={fetchList}
+            className="flex items-center gap-2 bg-white border px-4 py-2 rounded-md shadow-sm hover:bg-slate-50 text-slate-700">
+            <ArrowPathIcon className="w-5 h-5 text-sky-500" /> รีเฟรช
           </button>
-
           <Link
             href="/lots"
-            className="flex items-center gap-2 px-4 py-2 rounded-md text-white shadow-sm bg-gradient-to-r from-sky-500 via-violet-500 to-fuchsia-500 hover:opacity-95"
+            className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-md text-slate-800 bg-white ring-1 ring-slate-200 shadow-sm hover:bg-sky-50"
           >
-            <CubeIcon className="w-5 h-5" />
-            ดูล็อตวัคซีน
+            <IconBadge size="sm"><ArrowUpRightIcon className="w-4.5 h-4.5" /></IconBadge>
+            ไปหน้าล็อต
           </Link>
-
           {canEdit && (
-            <button
-              onClick={openCreate}
-              className="flex items-center gap-2 px-4 py-2 rounded-md text-white shadow-sm bg-gradient-to-r from-violet-600 via-fuchsia-600 to-sky-600 hover:opacity-95"
-            >
-              <PlusCircleIcon className="w-5 h-5" />
-              เพิ่มวัคซีน
+            <button onClick={openCreate}
+              className="flex items-center gap-2 px-4 py-2 rounded-md text-white shadow-sm bg-gradient-to-r from-violet-600 via-fuchsia-600 to-sky-600 hover:opacity-95">
+              <PlusCircleIcon className="w-5 h-5" /> เพิ่มวัคซีน
             </button>
           )}
         </div>
@@ -198,40 +181,25 @@ export default function CinesPage() {
           <MagnifyingGlassIcon className="w-5 h-5 text-slate-400" />
           <input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && (setPage(1), fetchList())}
+            onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && (setPage(1), fetchList())}
             placeholder="ค้นหาชื่อ/ประเภท/usageType"
             className="ml-2 w-full bg-transparent focus:outline-none text-slate-800 placeholder-slate-400"
           />
         </div>
-
         <div className="flex items-center gap-2">
           <button
             onClick={() => { setPage(1); fetchList() }}
             className="flex items-center gap-2 px-4 py-2 rounded-md text-white shadow-sm bg-gradient-to-r from-indigo-500 to-purple-500 hover:opacity-95"
           >
-            <SparklesIcon className="w-5 h-5" />
-            ค้นหา
+            <SparklesIcon className="w-5 h-5" /> ค้นหา
           </button>
-          <Link
-            href="/lots"
-            className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-md text-slate-800 bg-white ring-1 ring-slate-200 shadow-sm hover:bg-sky-50"
-          >
-            <IconBadge size="sm"><ArrowUpRightIcon className="w-4.5 h-4.5" /></IconBadge>
-            ไปหน้าล็อต
-          </Link>
         </div>
       </div>
 
       {/* Error/Loading */}
-      {error && (
-        <div className="mt-3 mb-4 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md px-3 py-2">
-          {error}
-        </div>
-      )}
-      {loading && (
-        <div className="mb-4 text-slate-500">กำลังโหลด...</div>
-      )}
+      {error && <div className="mt-3 mb-4 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md px-3 py-2">{error}</div>}
+      {loading && <div className="mb-4 text-slate-500">กำลังโหลด...</div>}
 
       {/* Table */}
       <div className="overflow-x-auto">
@@ -248,10 +216,8 @@ export default function CinesPage() {
           </thead>
           <tbody className="[&>tr:nth-child(even)]:bg-slate-50">
             {items.map((it, idx) => (
-              <tr
-                key={it.id}
-                className="border-t border-slate-200/60 hover:bg-gradient-to-r hover:from-violet-50/70 hover:to-sky-50/70 transition-colors"
-              >
+              <tr key={it.id}
+                className="border-t border-slate-200/60 hover:bg-gradient-to-r hover:from-violet-50/70 hover:to-sky-50/70 transition-colors">
                 <td className="px-4 py-2 text-center text-slate-700">{(page - 1) * limit + idx + 1}</td>
                 <td className="px-4 py-2 font-medium text-slate-800 flex items-center gap-2">
                   <span className="text-xl">💉</span>
@@ -271,14 +237,14 @@ export default function CinesPage() {
                 <td className="px-4 py-2 text-slate-600">{it.usageType}</td>
                 <td className="px-4 py-2">
                   <div className="flex justify-center gap-3">
-                    {/* นำเข้าล็อต */}
-                    <Link
-                      href={`/lots?vaccineId=${it.id}`}
-                      className="px-2.5 py-1.5 rounded-md text-white text-sm shadow-sm bg-gradient-to-r from-indigo-500 to-purple-500 hover:opacity-95"
-                      title="นำเข้าล็อต"
-                    >
-                      นำเข้าล็อต
-                    </Link>
+                    {/* ไปหน้า /lots พร้อม prefillVaccineId */}
+                   <Link
+  href={{ pathname: '/lots/new', query: { prefillVaccineId: it.id } }}
+  className="px-2.5 py-1.5 rounded-md text-white text-sm shadow-sm bg-gradient-to-r from-indigo-500 to-purple-500 hover:opacity-95"
+>
+  นำเข้าล็อต
+</Link>
+
 
                     {/* แก้ไข */}
                     <button
@@ -292,16 +258,15 @@ export default function CinesPage() {
                     >
                       <PencilIcon className="w-5 h-5" />
                     </button>
-
                     {/* ลบ */}
                     <button
                       onClick={() => onDelete(it.id)}
-                      disabled={!canEdit}
+                      disabled={!canEdit || deletingId === it.id}
                       className={classNames(
                         'p-1.5 rounded-full hover:bg-rose-50 text-rose-600',
-                        !canEdit && 'opacity-40 cursor-not-allowed'
+                        (!canEdit || deletingId === it.id) && 'opacity-40 cursor-not-allowed'
                       )}
-                      title="ลบ"
+                      title={deletingId === it.id ? 'กำลังลบ...' : 'ลบ'}
                     >
                       <TrashIcon className="w-5 h-5" />
                     </button>
@@ -343,41 +308,112 @@ export default function CinesPage() {
         <VaccineForm
           initial={editing ?? undefined}
           onClose={() => setIsFormOpen(false)}
-          onSaved={onSaved}
+          onSaved={() => { setIsFormOpen(false); fetchList() }}
+          canEdit={canEdit}
         />
       )}
     </div>
   )
 }
 
+/* ============ Auto rules for requiredDoses (No input needed by default) ============ */
+// key ใช้ชื่อวัคซีน normalize (ไม่สนช่องว่าง/เคส)
+const RECOMMENDED_DOSES: Record<string, number> = {
+  // ตัวอย่างที่พบบ่อย (ไม่มี 'covid-19')
+  'bcg': 1,
+  'hepb': 3,
+  'hepatitisb': 3,
+  'dpt': 5,
+  'dtp': 5,
+  'mmr': 2,
+  'varicella': 2,
+  'polio': 4,
+  'ipv': 4,
+  'opv': 4,
+  'pcv': 3,
+  'hib': 3,
+  'hpv': 2
+}
+
+// เผื่อบางชนิดวัคซีนอยากกำกับขั้นต่ำ
+const TYPE_MIN: Record<string, number> = {
+  'เชื้อเป็น': 1,
+  'เชื้อตาย': 1
+}
+
+function normalizeName(s: string) {
+  return s.toLowerCase().replace(/\s+/g, '').trim()
+}
+
+function autoRequiredDoses(name: string, type?: string): number {
+  const key = normalizeName(name)
+  if (RECOMMENDED_DOSES[key]) return RECOMMENDED_DOSES[key]
+  if (type && TYPE_MIN[type] != null) return TYPE_MIN[type]
+  return 1 // fallback
+}
+
+/* ============ Sub components (no default export) ============ */
 function VaccineForm({
   initial,
   onClose,
   onSaved,
+  canEdit,
 }: {
   initial?: Partial<Cine>
   onClose: () => void
   onSaved: () => void
+  canEdit: boolean
 }) {
-  const router = useRouter()
   const isEdit = Boolean(initial?.id)
   const [name, setName] = useState(initial?.name ?? '')
   const [type, setType] = useState(initial?.type ?? '')
-  const [requiredDoses, setRequiredDoses] = useState<number | ''>(initial?.requiredDoses ?? '')
   const [usageType, setUsageType] = useState(initial?.usageType ?? '')
+
+  // --- AUTO & MANUAL (override) states ---
+  // ค่าอัตโนมัติจากแมพ
+  const [autoDoses, setAutoDoses] = useState<number>(
+    autoRequiredDoses(initial?.name ?? '', initial?.type)
+  )
+  // ถ้าเป็นโหมดแก้ไขและมีค่าเดิม ให้ prefll เป็น manualInput; ถ้าไม่มีก็ใช้ auto
+  const [manualInput, setManualInput] = useState<number>(
+    typeof initial?.requiredDoses === 'number' ? initial!.requiredDoses : autoDoses
+  )
+  // เปิดโหมดปรับเองได้เฉพาะ ADMIN; default = false
+  const [allowManual, setAllowManual] = useState<boolean>(false)
+
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+
+  // เมื่อชื่อ/ชนิดวัคซีนเปลี่ยน → คำนวณ auto ใหม่ (แต่จะไม่ทับ manual หาก allowManual = true)
+  useEffect(() => {
+    const a = autoRequiredDoses(name, type)
+    setAutoDoses(a)
+    if (!allowManual) {
+      setManualInput(a) // sync ให้แสดงผลตรง badge จนกว่าจะเปิดปรับเอง
+    }
+  }, [name, type, allowManual])
+
+  const effectiveRequired = allowManual ? manualInput : autoDoses
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setErr('')
-    if (!name || !type || !requiredDoses || !usageType) {
+    if (!name || !type || !usageType) {
       setErr('กรุณากรอกข้อมูลให้ครบ')
+      return
+    }
+    if (allowManual && (!manualInput || manualInput < 1)) {
+      setErr('จำนวนเข็ม (ปรับเอง) ต้องมากกว่า 0')
       return
     }
     setSaving(true)
     try {
-      const payload = { name, type, requiredDoses: Number(requiredDoses), usageType }
+      const payload = {
+        name,
+        type,
+        requiredDoses: effectiveRequired,
+        usageType
+      }
       const res = await fetch(isEdit ? `/api/cines/${initial!.id}` : '/api/cines', {
         method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -387,10 +423,6 @@ function VaccineForm({
         const j = await res.json().catch(() => ({ message: '' }))
         throw new Error(j.message || 'บันทึกไม่สำเร็จ')
       }
-
-      // ✅ บันทึกสำเร็จ → ไปหน้าล็อตทันที
-      onClose()
-      router.push('/lots')
       onSaved()
     } catch (e: any) {
       setErr(e?.message || 'บันทึกไม่สำเร็จ')
@@ -402,7 +434,6 @@ function VaccineForm({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
       <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl ring-1 ring-slate-200 overflow-hidden">
-        {/* Modal header */}
         <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-violet-50 via-fuchsia-50 to-sky-50">
           <div className="flex items-center gap-2 text-slate-800 font-semibold">
             <IconBadge size="sm"><BeakerIcon className="w-4.5 h-4.5" /></IconBadge>
@@ -413,7 +444,6 @@ function VaccineForm({
           </button>
         </div>
 
-        {/* Body */}
         <div className="p-6">
           {err && (
             <div className="mb-3 text-rose-700 bg-rose-50 border border-rose-200 rounded-md px-3 py-2">{err}</div>
@@ -426,9 +456,11 @@ function VaccineForm({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="w-full border px-3 py-2 rounded-md bg-white border-slate-200 text-slate-800"
-                placeholder="เช่น Pfizer"
+                placeholder="เช่น Pfizer, MMR, HepB"
               />
             </div>
+
+            {/* ชนิดวัคซีน */}
             <div>
               <label className="block mb-1 text-sm font-medium text-slate-700">ชนิดวัคซีน</label>
               <select
@@ -437,20 +469,54 @@ function VaccineForm({
                 className="w-full border px-3 py-2 rounded-md bg-white border-slate-200 text-slate-800"
               >
                 <option value="">-- เลือกชนิดวัคซีน --</option>
-                <option value="เชื้อเป็น">เชื้อเป็น (Live attenuated)</option>
-                <option value="เชื้อตาย">เชื้อตาย (Inactivated)</option>
+                <option value="เชื้อเป็น">เชื้อเป็น</option>
+                <option value="เชื้อตาย">เชื้อตาย</option>
               </select>
             </div>
-            <div>
-              <label className="block mb-1 text-sm font-medium text-slate-700">จำนวนเข็มที่ต้องฉีด</label>
-              <input
-                type="number"
-                min={1}
-                value={requiredDoses}
-                onChange={(e) => setRequiredDoses(Number(e.target.value))}
-                className="w-full border px-3 py-2 rounded-md bg-white border-slate-200 text-slate-800"
-              />
+
+            {/* แสดงผลอัตโนมัติ + สวิตช์ปรับเอง (ADMIN เท่านั้น) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-sm font-medium text-slate-700">จำนวนเข็มที่แนะนำสำหรับการสร้างภูมิคุ้มกันครบชุด</label>
+                <label className={classNames(
+                  'flex items-center gap-2 text-sm',
+                  !canEdit && 'opacity-50 cursor-not-allowed'
+                )}>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    disabled={!canEdit}
+                    checked={allowManual}
+                    onChange={(e) => setAllowManual(e.target.checked)}
+                  />
+                  <span>ปรับเอง (ADMIN)</span>
+                </label>
+              </div>
+
+              {!allowManual ? (
+                <>
+                  <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 text-emerald-700 px-3 py-1 text-sm font-semibold">
+                    {autoDoses} เข็ม
+                  </div>
+                  <p className="text-xs text-slate-500">ระบบคำนวณอัตโนมัติจากชื่อ/ชนิดวัคซีน</p>
+                </>
+              ) : (
+                <div>
+                  <input
+                    type="number"
+                    min={1}
+                    value={manualInput}
+                    onChange={(e) => setManualInput(Math.max(1, Number(e.target.value || 1)))}
+                    className="w-full border px-3 py-2 rounded-md bg-white border-slate-200 text-slate-800"
+                    placeholder="กรอกจำนวนเข็ม"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    ค่าปัจจุบัน (อัตโนมัติ): {autoDoses} เข็ม • ระบบจะบันทึกค่านี้แทน
+                  </p>
+                </div>
+              )}
             </div>
+
             <div>
               <label className="block mb-1 text-sm font-medium text-slate-700">Usage Type</label>
               <select
@@ -477,8 +543,7 @@ function VaccineForm({
                 disabled={saving}
                 className="flex items-center gap-2 px-4 py-2 rounded-md text-white shadow-sm bg-gradient-to-r from-violet-600 via-fuchsia-600 to-sky-600 disabled:opacity-60"
               >
-                <SparklesIcon className="w-5 h-5" />
-                {saving ? 'กำลังบันทึก...' : 'บันทึก'}
+                บันทึก
               </button>
             </div>
           </form>

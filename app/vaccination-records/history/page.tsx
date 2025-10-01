@@ -237,7 +237,7 @@ export default function PatientsPage() {
             className="flex items-center gap-2 px-4 py-2 rounded-md text-white shadow-sm bg-gradient-to-r from-violet-600 via-fuchsia-600 to-sky-600 hover:opacity-95"
           >
             <UserIcon className="w-5 h-5" />
-            เพิ่มผู้ป่วย
+            ลงทะเบียนผู้ป่วยใหม่
           </button>
         </div>
       </div>

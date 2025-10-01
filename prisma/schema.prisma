@@ -64,7 +64,7 @@ model VaccineLot {
   vaccine Vaccine @relation("VaccineToLot", fields: [vaccineId], references: [id])
 
   expirationDate DateTime
-  batchNumber    String?   @db.VarChar(50)
+  batchNumber    String?   @db.VarChar(50) // เปลี่ยนจากเป็นวันที่นำเข้า
   serialNumber   String?   @db.VarChar(50)
   vaccinations VaccinationRecord[]
   
@@ -72,6 +72,9 @@ model VaccineLot {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  openVials  OpenVial[]
+
 
   @@index([vaccineId])
   @@index([expirationDate])
@@ -99,6 +102,8 @@ model Warehouse {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
 
+    openVials  OpenVial[]
+  
   @@unique([name])               // กันชื่อซ้ำ (เช่น “คลังกลาง”)
   @@index([type])
 }
@@ -213,6 +218,26 @@ model VaccinationRecord {
 
   @@index([vaccinationDate, vaccineId, patientId, lotNo])
   @@map("vaccination_records")
+}
+
+model OpenVial {
+  // keys
+  warehouseId Int
+  lotNo       String @db.VarChar(50)
+
+  // payload
+  dosesTotal  Int                  // เช่น 10 (จาก usageType 1:10)
+  dosesUsed   Int      @default(0) // ใช้ไปแล้วกี่โดส
+  openedAt    DateTime @default(now())
+  expiresAt   DateTime             // openedAt + 8 ชั่วโมง
+
+  // relations
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  lot         VaccineLot @relation(fields: [lotNo], references: [lotNo])
+
+  @@id([warehouseId, lotNo])       // 1 คลัง / 1 ล็อต เปิดค้างได้หนึ่งรายการ (MVP)
+  @@index([expiresAt])
+  @@map("open_vial")
 }
 
 

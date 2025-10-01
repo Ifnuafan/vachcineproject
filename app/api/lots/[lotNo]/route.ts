@@ -27,9 +27,17 @@ function calcStatus(expirationDate: Date): LotStatus {
   return 'USABLE'
 }
 
+// HEAD /api/lots/[lotNo] — สำหรับเช็กซ้ำแบบเร็ว
+export async function HEAD(_req: Request, ctx: { params: Promise<{ lotNo: string }> }) {
+  const { lotNo: raw } = await ctx.params
+  const lotNo = decodeURIComponent(raw)
+  const item = await prisma.vaccineLot.findUnique({ where: { lotNo }, select: { lotNo: true } })
+  return new Response(null, { status: item ? 200 : 404, headers: { 'Cache-Control': 'no-store' } })
+}
+
 // GET /api/lots/[lotNo]
-export async function GET(_req: Request, ctx: { params: { lotNo: string } }) {
-  const { lotNo: raw } = ctx.params
+export async function GET(_req: Request, ctx: { params: Promise<{ lotNo: string }> }) {
+  const { lotNo: raw } = await ctx.params
   const lotNo = decodeURIComponent(raw)
 
   const item = await prisma.vaccineLot.findUnique({
@@ -42,13 +50,13 @@ export async function GET(_req: Request, ctx: { params: { lotNo: string } }) {
 }
 
 // PUT /api/lots/[lotNo]
-export async function PUT(req: Request, ctx: { params: { lotNo: string } }) {
+export async function PUT(req: Request, ctx: { params: Promise<{ lotNo: string }> }) {
   const session = await getServerSession(authOptions)
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
   }
 
-  const { lotNo: raw } = ctx.params
+  const { lotNo: raw } = await ctx.params
   const lotNo = decodeURIComponent(raw)
 
   const body = await req.json().catch(() => ({}))
@@ -86,13 +94,13 @@ export async function PUT(req: Request, ctx: { params: { lotNo: string } }) {
 }
 
 // DELETE /api/lots/[lotNo]
-export async function DELETE(_req: Request, ctx: { params: { lotNo: string } }) {
+export async function DELETE(_req: Request, ctx: { params: Promise<{ lotNo: string }> }) {
   const session = await getServerSession(authOptions)
   if (session?.user?.role !== 'ADMIN') {
     return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
   }
 
-  const { lotNo: raw } = ctx.params
+  const { lotNo: raw } = await ctx.params
   const lotNo = decodeURIComponent(raw)
 
   // กันลบถ้าใช้งานแล้ว

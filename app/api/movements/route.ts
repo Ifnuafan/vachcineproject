@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/app/api/auth/[...nextauth]/route'
-import { InventoryAction, LotStatus, Prisma } from '@prisma/client'  // <- เพิ่ม Prisma เพื่อจับ error code
+import { InventoryAction, LotStatus, Prisma } from '@prisma/client'
 
 function parseDateOnlyOrISO(input?: string): Date {
   if (!input) return new Date()
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
 
-  // ✅ แปลง id จาก session ให้เป็น number เสมอ; ถ้าไม่ได้ค่อย fallback หาโดยอีเมล
+  // ✅ ให้ userId เป็น number เสมอ
   let userId = toInt((session.user as any)?.id)
   if (!userId && session.user?.email) {
     const u = await prisma.user.findUnique({ where: { email: session.user.email } })
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
       vaccineId?: number | string
       expirationDate?: string
       batchNumber?: string
-      serialNumber?: string
+      // serialNumber?: string  // ❌ เลิกใช้แล้ว
     }
 
     const action = body?.action as InventoryAction
@@ -71,6 +71,45 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: 'Invalid transactionDate' }, { status: 400 })
     }
 
+    const sourceWarehouseId = toInt(body.sourceWarehouseId)
+    const targetWarehouseId = toInt(body.targetWarehouseId)
+
+    // โหลดข้อมูลคลัง (ถ้ามีการอ้างอิง)
+    const [srcW, dstW] = await Promise.all([
+      sourceWarehouseId ? prisma.warehouse.findUnique({ where: { id: sourceWarehouseId } }) : Promise.resolve(null),
+      targetWarehouseId ? prisma.warehouse.findUnique({ where: { id: targetWarehouseId } }) : Promise.resolve(null),
+    ])
+
+    // ✅ บังคับกติกา SUB/MAIN
+    if (action === 'TRANSFER') {
+      if (!srcW || !dstW) {
+        return NextResponse.json(
+          { message: 'ต้องระบุ sourceWarehouseId และ targetWarehouseId สำหรับ TRANSFER' },
+          { status: 400 },
+        )
+      }
+      if (sourceWarehouseId === targetWarehouseId) {
+        return NextResponse.json({ message: 'Source และ Target ต้องต่างกัน' }, { status: 400 })
+      }
+      if (!(srcW.type === 'SUB' && dstW.type === 'MAIN')) {
+        return NextResponse.json(
+          { message: 'TRANSFER อนุญาตเฉพาะ SUB → MAIN (โอนคืนคลังกลาง) เท่านั้น' },
+          { status: 400 },
+        )
+      }
+    } else {
+      // RECEIVE / ISSUE / DISPOSE ต้องทำกับคลัง SUB เท่านั้น
+      if (!dstW) {
+        return NextResponse.json({ message: 'ต้องระบุ targetWarehouseId' }, { status: 400 })
+      }
+      if (dstW.type !== 'SUB') {
+        return NextResponse.json(
+          { message: `${action} ต้องทำกับคลัง SUB เท่านั้น` },
+          { status: 400 },
+        )
+      }
+    }
+
     // ----- ตรวจ/สร้างล็อตก่อน -----
     let lot = await prisma.vaccineLot.findUnique({ where: { lotNo } })
     if (!lot) {
@@ -91,6 +130,7 @@ export async function POST(req: Request) {
           return NextResponse.json({ message: 'Invalid expirationDate' }, { status: 400 })
         }
 
+        // ✅ ไม่เก็บ serialNumber แล้ว
         lot = await prisma.vaccineLot.create({
           data: {
             lotNo,
@@ -98,7 +138,6 @@ export async function POST(req: Request) {
             expirationDate: exp,
             status: LotStatus.USABLE,
             batchNumber: body.batchNumber ?? null,
-            serialNumber: body.serialNumber ?? null,
           },
         })
       } else {
@@ -109,37 +148,17 @@ export async function POST(req: Request) {
       }
     }
 
-    const sourceWarehouseId = toInt(body.sourceWarehouseId)
-    const targetWarehouseId = toInt(body.targetWarehouseId)
-
     if (action === 'TRANSFER') {
-      if (!sourceWarehouseId || !targetWarehouseId) {
-        return NextResponse.json(
-          { message: 'ต้องระบุ sourceWarehouseId และ targetWarehouseId สำหรับ TRANSFER' },
-          { status: 400 },
-        )
-      }
-      if (sourceWarehouseId === targetWarehouseId) {
-        return NextResponse.json({ message: 'Source และ Target ต้องต่างกัน' }, { status: 400 })
-      }
-
-      const [srcW, dstW] = await Promise.all([
-        prisma.warehouse.findUnique({ where: { id: sourceWarehouseId } }),
-        prisma.warehouse.findUnique({ where: { id: targetWarehouseId } }),
-      ])
-      if (!srcW) return NextResponse.json({ message: 'ไม่พบคลังต้นทาง' }, { status: 404 })
-      if (!dstW) return NextResponse.json({ message: 'ไม่พบคลังปลายทาง' }, { status: 404 })
-
-      // ทำเป็น 2 แถว
+      // บันทึก 2 แถว (- จาก SUB, + เข้า MAIN)
       const result = await prisma.$transaction(async (tx) => {
         await tx.vaccineInventory.create({
           data: {
             action: InventoryAction.TRANSFER,
             lotNo,
             quantity: -Math.abs(quantity!),
-            userId,                      // <- เป็น number แน่ ๆ แล้ว
-            sourceWarehouseId,
-            targetWarehouseId,
+            userId,
+            sourceWarehouseId: srcW!.id,
+            targetWarehouseId: dstW!.id,
             remarks: body.remarks ?? null,
             transactionDate: trxDate,
           },
@@ -149,26 +168,19 @@ export async function POST(req: Request) {
             action: InventoryAction.TRANSFER,
             lotNo,
             quantity: Math.abs(quantity!),
-            userId,                      // <- เป็น number แน่ ๆ แล้ว
-            sourceWarehouseId,
-            targetWarehouseId,
+            userId,
+            sourceWarehouseId: srcW!.id,
+            targetWarehouseId: dstW!.id,
             remarks: body.remarks ?? null,
             transactionDate: trxDate,
           },
         })
         return created
       })
-
       return NextResponse.json(result, { status: 201 })
     }
 
-    // RECEIVE / ISSUE / DISPOSE → ต้องมี targetWarehouseId
-    if (!targetWarehouseId) {
-      return NextResponse.json({ message: 'ต้องระบุ targetWarehouseId' }, { status: 400 })
-    }
-    const dst = await prisma.warehouse.findUnique({ where: { id: targetWarehouseId } })
-    if (!dst) return NextResponse.json({ message: 'ไม่พบคลังปลายทาง' }, { status: 404 })
-
+    // RECEIVE / ISSUE / DISPOSE → target = SUB แล้วตรวจไว้ข้างบน
     const signedQty =
       action === 'ISSUE' || action === 'DISPOSE' ? -Math.abs(quantity!) : Math.abs(quantity!)
 
@@ -177,9 +189,9 @@ export async function POST(req: Request) {
         action,
         lotNo,
         quantity: signedQty,
-        userId,                          // <- number
-        sourceWarehouseId: sourceWarehouseId ?? null,
-        targetWarehouseId,
+        userId,
+        sourceWarehouseId: srcW?.id ?? null,
+        targetWarehouseId: dstW!.id,
         remarks: body.remarks ?? null,
         transactionDate: trxDate,
       },
@@ -187,7 +199,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json(created, { status: 201 })
   } catch (err: any) {
-    // Log ให้เห็น code ของ Prisma ชัด ๆ
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
       console.error('❌ PrismaKnownError', err.code, err.message, err.meta)
       if (err.code === 'P2003') {

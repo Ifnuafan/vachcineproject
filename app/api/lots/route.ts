@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 type LotStatus = 'USABLE' | 'NEAR_EXPIRE' | 'EXPIRED'
-const NEAR_EXPIRE_DAYS = 30
+const NEAR_EXPIRE_DAYS = 60
 
 const noStore = { headers: { 'Cache-Control': 'no-store' } }
 
